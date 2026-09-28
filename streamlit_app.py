@@ -150,6 +150,135 @@ urls_input = st.text_area(
 
 check_button = st.button("Check Stats", type="primary")
 
+import streamlit.components.v1 as components
+
+
+def get_video_stats(url: str) -> dict:
+    ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+    return {
+        "Username": info.get("uploader") or info.get("creator") or "",
+        "Video Title": (info.get("title") or "")[:80],
+        "URL": url,
+        "Video ID": str(info.get("id") or ""),
+        "Link": info.get("webpage_url") or url,
+        "Views": info.get("view_count", ""),
+        "Likes": info.get("like_count", ""),
+        "Comments": info.get("comment_count", ""),
+        "Shares": info.get("repost_count", ""),
+        "Upload Date": info.get("upload_date", ""),
+        "Status": "OK",
+    }
+
+
+if check_button:
+    urls = [u.strip() for u in urls_input.splitlines() if u.strip()]
+
+    if not urls:
+        st.warning("Paste at least one TikTok link first.")
+    else:
+        results = []
+        progress = st.progress(0, text="Starting...")
+
+        for i, url in enumerate(urls, start=1):
+            progress.progress(i / len(urls), text=f"Checking {i}/{len(urls)}: {url}")
+            try:
+                results.append(get_video_stats(url))
+            except Exception as e:
+                results.append({
+                    "Username": "", "Video Title": "", "URL": url,
+                    "Video ID": "", "Link": url,
+                    "Views": "", "Likes": "", "Comments": "", "Shares": "",
+                    "Upload Date": "", "Status": f"FAILED - {str(e)[:60]}",
+                })
+
+        progress.empty()
+
+        df = pd.DataFrame(results)
+        for col in ["Views", "Likes", "Comments", "Shares"]:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+        df = df.sort_values(by="Views", ascending=False, na_position="last")
+
+        # Save so results stay on screen when you pick a video to watch
+        st.session_state["df"] = df
+
+
+if "df" in st.session_state:
+    df = st.session_state["df"]
+
+    st.markdown(
+        f'<div class="hero-title" style="font-size:26px; margin-top:36px;">Results ({len(df)} checked)</div>',
+        unsafe_allow_html=True,
+    )
+
+    def fmt(val):
+        if pd.isna(val):
+            return "N/A"
+        return f"{int(val):,}"
+
+    cols = st.columns(3)
+    for idx, row in enumerate(df.to_dict("records")):
+        with cols[idx % 3]:
+            status_note = "" if row["Status"] == "OK" else f'<br><span style="color:#B23B3B;">{row["Status"]}</span>'
+            st.markdown(
+                f"""
+                <div class="result-card">
+                    <h4>@{row['Username'] or 'unknown'}</h4>
+                    <div class="result-stats">
+                        views: {fmt(row['Views'])}<br>
+                        likes: {fmt(row['Likes'])}<br>
+                        comments: {fmt(row['Comments'])}<br>
+                        shares: {fmt(row['Shares'])}
+                        {status_note}
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    # ---------------- Video player ----------------
+    st.markdown(
+        '<div class="hero-title" style="font-size:26px; margin-top:36px;">▶ Watch a video</div>',
+        unsafe_allow_html=True,
+    )
+
+    playable = df[(df["Status"] == "OK") & (df["Video ID"] != "")]
+
+    if playable.empty:
+        st.info("No playable videos found in these results.")
+    else:
+        labels = {
+            row["Video ID"]: f"@{row['Username'] or 'unknown'} — {row['Video Title'] or row['Video ID']}"
+            for _, row in playable.iterrows()
+        }
+        chosen_id = st.selectbox(
+            "Choose a video",
+            options=list(labels.keys()),
+            format_func=lambda vid: labels[vid],
+        )
+        chosen = playable[playable["Video ID"] == chosen_id].iloc[0]
+
+        left, center, right = st.columns([1, 1, 1])
+        with center:
+            components.iframe(
+                f"https://www.tiktok.com/embed/v2/{chosen_id}",
+                width=340,
+                height=740,
+                scrolling=False,
+            )
+            st.link_button("🛒 Open on TikTok (see yellow basket)", chosen["Link"], use_container_width=True)
+
+    st.dataframe(df, use_container_width=True)
+
+    csv = df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "⬇️ Download as CSV",
+        data=csv,
+        file_name="tiktok_report.csv",
+        mime="text/csv",
+    )
+
 
 def get_video_stats(url: str) -> dict:
     ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True}
