@@ -18,6 +18,7 @@ import base64
 import html
 import io
 import streamlit as st
+import streamlit.components.v1 as components
 import pandas as pd
 import yt_dlp
 from PIL import Image
@@ -182,6 +183,7 @@ def get_video_stats(url: str) -> dict:
         "Username": info.get("uploader") or info.get("creator") or "",
         "Video Title": (info.get("title") or "")[:80],
         "URL": url,
+        "Video ID": str(info.get("id") or ""),
         "Views": info.get("view_count", ""),
         "Likes": info.get("like_count", ""),
         "Comments": info.get("comment_count", ""),
@@ -206,7 +208,7 @@ if check_button:
                 results.append(get_video_stats(url))
             except Exception as e:
                 results.append({
-                    "Username": "", "Video Title": "", "URL": url,
+                    "Username": "", "Video Title": "", "URL": url, "Video ID": "",
                     "Views": "", "Likes": "", "Comments": "", "Shares": "",
                     "Upload Date": "", "Status": friendly_error(e),
                 })
@@ -216,43 +218,74 @@ if check_button:
         df = pd.DataFrame(results)
         for col in ["Views", "Likes", "Comments", "Shares"]:
             df[col] = pd.to_numeric(df[col], errors="coerce")
-        df = df.sort_values(by="Views", ascending=False, na_position="last")
+        df = df.sort_values(by="Views", ascending=False, na_position="last").reset_index(drop=True)
 
+        # Remember the results so they stay on screen when the person clicks
+        # something else on the page (like the video picker below).
+        st.session_state["results_df"] = df
+
+
+if "results_df" in st.session_state:
+    df = st.session_state["results_df"]
+
+    st.markdown(
+        f'<div class="hero-title" style="font-size:26px; margin-top:36px;">Results ({len(df)} checked)</div>',
+        unsafe_allow_html=True,
+    )
+
+    def fmt(val):
+        if pd.isna(val):
+            return "N/A"
+        return f"{int(val):,}"
+
+    cols = st.columns(3)
+    for idx, row in enumerate(df.to_dict("records")):
+        with cols[idx % 3]:
+            status_note = "" if row["Status"] == "OK" else (
+                '<br><span style="color:#B23B3B;">' + html.escape(str(row["Status"])) + '</span>'
+            )
+            card_html = (
+                '<div class="result-card">'
+                f'<h4>@{html.escape(str(row["Username"] or "unknown"))}</h4>'
+                '<div class="result-stats">'
+                f'views: {fmt(row["Views"])}<br>'
+                f'likes: {fmt(row["Likes"])}<br>'
+                f'comments: {fmt(row["Comments"])}<br>'
+                f'shares: {fmt(row["Shares"])}'
+                f'{status_note}'
+                '</div></div>'
+            )
+            st.markdown(card_html, unsafe_allow_html=True)
+
+    # ---------------- Video viewer ----------------
+    playable = df[(df["Status"] == "OK") & (df["Video ID"] != "")]
+    if not playable.empty:
         st.markdown(
-            f'<div class="hero-title" style="font-size:26px; margin-top:36px;">Results ({len(urls)} checked)</div>',
+            '<div class="hero-title" style="font-size:26px; margin-top:24px;">▶ Watch a video</div>',
             unsafe_allow_html=True,
         )
+        options = {
+            f"{n + 1}. @{r['Username'] or 'unknown'} - {fmt(r['Views'])} views": i
+            for n, (i, r) in enumerate(playable.iterrows())
+        }
+        choice = st.selectbox("Pick a video to watch", list(options.keys()), label_visibility="collapsed")
+        picked = df.loc[options[choice]]
 
-        def fmt(val):
-            if pd.isna(val):
-                return "N/A"
-            return f"{int(val):,}"
+        left, middle, right = st.columns([1, 2, 1])
+        with middle:
+            components.iframe(
+                f"https://www.tiktok.com/embed/v2/{picked['Video ID']}",
+                height=760,
+                scrolling=True,
+            )
+            st.markdown(f"[Open on TikTok ↗]({picked['URL']})")
 
-        cols = st.columns(3)
-        for idx, row in enumerate(df.to_dict("records")):
-            with cols[idx % 3]:
-                status_note = "" if row["Status"] == "OK" else (
-                    '<br><span style="color:#B23B3B;">' + html.escape(str(row["Status"])) + '</span>'
-                )
-                card_html = (
-                    '<div class="result-card">'
-                    f'<h4>@{html.escape(str(row["Username"] or "unknown"))}</h4>'
-                    '<div class="result-stats">'
-                    f'views: {fmt(row["Views"])}<br>'
-                    f'likes: {fmt(row["Likes"])}<br>'
-                    f'comments: {fmt(row["Comments"])}<br>'
-                    f'shares: {fmt(row["Shares"])}'
-                    f'{status_note}'
-                    '</div></div>'
-                )
-                st.markdown(card_html, unsafe_allow_html=True)
+    st.dataframe(df, use_container_width=True)
 
-        st.dataframe(df, use_container_width=True)
-
-        csv = df.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "⬇️ Download as CSV",
-            data=csv,
-            file_name="tiktok_report.csv",
-            mime="text/csv",
-        )
+    csv = df.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "⬇️ Download as CSV",
+        data=csv,
+        file_name="tiktok_report.csv",
+        mime="text/csv",
+    )
