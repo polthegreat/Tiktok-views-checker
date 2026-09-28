@@ -15,6 +15,7 @@ HOW TO DEPLOY SO YOUR CO-WORKER CAN ACCESS IT (free):
 """
 
 import base64
+import html
 import io
 import streamlit as st
 import pandas as pd
@@ -154,8 +155,27 @@ urls_input = st.text_area(
 check_button = st.button("Check Stats", type="primary")
 
 
+def friendly_error(e: Exception) -> str:
+    msg = str(e)
+    low = msg.lower()
+    if "comfortable" in low or "log in" in low or "login" in low:
+        return "FAILED - TikTok only shows this post to logged-in users (age/sensitive-restricted)"
+    if "private" in low:
+        return "FAILED - this video is private"
+    if "removed" in low or "unavailable" in low or "not found" in low:
+        return "FAILED - video was removed or the link is wrong"
+    return "FAILED - " + msg[:140]
+
+
 def get_video_stats(url: str) -> dict:
-    ydl_opts = {"quiet": True, "no_warnings": True, "skip_download": True}
+    ydl_opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        # We only need the numbers, not the video file. This lets photo /
+        # slideshow posts (which have no video formats) still return stats.
+        "ignore_no_formats_error": True,
+    }
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
     return {
@@ -188,7 +208,7 @@ if check_button:
                 results.append({
                     "Username": "", "Video Title": "", "URL": url,
                     "Views": "", "Likes": "", "Comments": "", "Shares": "",
-                    "Upload Date": "", "Status": f"FAILED - {str(e)[:60]}",
+                    "Upload Date": "", "Status": friendly_error(e),
                 })
 
         progress.empty()
@@ -211,22 +231,21 @@ if check_button:
         cols = st.columns(3)
         for idx, row in enumerate(df.to_dict("records")):
             with cols[idx % 3]:
-                status_note = "" if row["Status"] == "OK" else f'<br><span style="color:#B23B3B;">{row["Status"]}</span>'
-                st.markdown(
-                    f"""
-                    <div class="result-card">
-                        <h4>@{row['Username'] or 'unknown'}</h4>
-                        <div class="result-stats">
-                            views: {fmt(row['Views'])}<br>
-                            likes: {fmt(row['Likes'])}<br>
-                            comments: {fmt(row['Comments'])}<br>
-                            shares: {fmt(row['Shares'])}
-                            {status_note}
-                        </div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
+                status_note = "" if row["Status"] == "OK" else (
+                    '<br><span style="color:#B23B3B;">' + html.escape(str(row["Status"])) + '</span>'
                 )
+                card_html = (
+                    '<div class="result-card">'
+                    f'<h4>@{html.escape(str(row["Username"] or "unknown"))}</h4>'
+                    '<div class="result-stats">'
+                    f'views: {fmt(row["Views"])}<br>'
+                    f'likes: {fmt(row["Likes"])}<br>'
+                    f'comments: {fmt(row["Comments"])}<br>'
+                    f'shares: {fmt(row["Shares"])}'
+                    f'{status_note}'
+                    '</div></div>'
+                )
+                st.markdown(card_html, unsafe_allow_html=True)
 
         st.dataframe(df, use_container_width=True)
 
