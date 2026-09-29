@@ -137,6 +137,26 @@ div.stButton > button:hover {
     color: #6B4226;
     font-size: 14px;
 }
+.result-card.standout {
+    border: 2px solid #C9A227;
+    box-shadow: 0 4px 16px rgba(201, 162, 39, 0.35);
+}
+.badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 999px;
+    margin-bottom: 8px;
+}
+.badge-standout {
+    background: #FCEFC2;
+    color: #7A5C00;
+}
+.badge-top {
+    background: #6B4226;
+    color: #FFF8F0;
+}
 .open-btn {
     display: inline-block;
     background: #6B4226;
@@ -174,7 +194,7 @@ st.markdown(NAV_HTML, unsafe_allow_html=True)
 st.markdown('<div class="hero-title">Check your influencers.<br>All in one place.</div>', unsafe_allow_html=True)
 st.markdown(
     '<div class="hero-subtitle">Paste TikTok video links below and instantly see views, likes, '
-    'comments, and shares for each video posted no manual checking needed.</div>',
+    'comments, and shares for each one — no manual checking needed.</div>',
     unsafe_allow_html=True,
 )
 
@@ -183,6 +203,14 @@ urls_input = st.text_area(
     height=180,
     placeholder="https://www.tiktok.com/@username/video/1234567890123456789\nhttps://www.tiktok.com/@username2/video/9876543210987654321",
     label_visibility="collapsed",
+)
+
+highlight_threshold = st.number_input(
+    "Flag videos with views above:",
+    min_value=0,
+    value=10000,
+    step=1000,
+    help="Any checked video that passes this number of views gets a 🔥 Standout badge below.",
 )
 
 check_button = st.button("Check Stats", type="primary")
@@ -270,14 +298,34 @@ if "results_df" in st.session_state:
             return "N/A"
         return f"{int(val):,}"
 
+    # The single best-performing video in this batch gets a "Top" badge.
+    ok_rows = df[df["Status"] == "OK"]
+    top_idx = ok_rows["Views"].idxmax() if not ok_rows.empty and ok_rows["Views"].notna().any() else None
+
     cols = st.columns(3)
     for idx, row in enumerate(df.to_dict("records")):
         with cols[idx % 3]:
             status_note = "" if row["Status"] == "OK" else (
                 '<br><span style="color:#B23B3B;">' + html.escape(str(row["Status"])) + '</span>'
             )
+
+            is_top = top_idx is not None and idx == top_idx
+            is_standout = (
+                row["Status"] == "OK"
+                and pd.notna(row["Views"])
+                and row["Views"] >= highlight_threshold
+            )
+
+            badges = ""
+            if is_top:
+                badges += '<span class="badge badge-top">🏆 Top this batch</span> '
+            if is_standout:
+                badges += '<span class="badge badge-standout">🔥 Standout</span>'
+
+            card_class = "result-card" + (" standout" if is_standout else "")
             card_html = (
-                '<div class="result-card">'
+                f'<div class="{card_class}">'
+                f'{badges}'
                 f'<h4>@{html.escape(str(row["Username"] or "unknown"))}</h4>'
                 '<div class="result-stats">'
                 f'views: {fmt(row["Views"])}<br>'
@@ -336,6 +384,6 @@ if "results_df" in st.session_state:
 
 st.markdown(
     '<div style="text-align:center; font-size:11px; color:#8C5B33; margin-top:18px;">'
-    'App version 4 - player update</div>',
+    'App version 5 - performance highlights</div>',
     unsafe_allow_html=True,
 )
