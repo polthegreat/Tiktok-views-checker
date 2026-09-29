@@ -174,7 +174,7 @@ st.markdown(NAV_HTML, unsafe_allow_html=True)
 st.markdown('<div class="hero-title">Check your influencers.<br>All in one place.</div>', unsafe_allow_html=True)
 st.markdown(
     '<div class="hero-subtitle">Paste TikTok video links below and instantly see views, likes, '
-    'comments, and shares for each one — no manual checking needed.</div>',
+    'comments, and shares for each video posted no manual checking needed.</div>',
     unsafe_allow_html=True,
 )
 
